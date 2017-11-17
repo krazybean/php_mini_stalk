@@ -368,7 +368,7 @@ class Logger {
 	public function debug($message){ $this->lopen(); $this->lwrite($message, 'DEBUG'); $this->lclose();}
 	public function info($message){ $this->lopen(); $this->lwrite($message, 'INFO');  $this->lclose();}
 	public function warn($message){ $this->lopen(); $this->lwrite($message, 'WARN');  $this->lclose();}
-    public function error($message){ $this->lopen(); $this->lwrite($message, 'ERROR');  $this->lclose();}
+	public function error($message){ $this->lopen(); $this->lwrite($message, 'ERROR');  $this->lclose();}
 	public function fatal($message){ $this->lopen(); $this->lwrite($message, 'FATAL');  $this->lclose();}
 
     public function lclose(){
