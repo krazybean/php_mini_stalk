@@ -396,10 +396,11 @@ class Utils {
 	    return $randomString;
     }
 
-    public static function config_template($secret_key){
+    public static function config_template($secret_key, $salt){
         $template = "<?php
 			 return [
 			    'secret_key' => '$secret_key',
+			    'salt' => '$salt'
 			 ];
 			?>";
         return $template;
@@ -423,6 +424,35 @@ class Utils {
         }
     }
 
+    public static function generate_salt(){
+        return uniqid(mt_rand(), true);
+    }
+
+    public static function encrypt($string, $secret_key, $salt){
+        $key = hash('SHA256', $salt . $secret_key, true);
+	    $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+	    $iv = openssl_random_pseudo_bytes($ivlen);
+	    $ciphertext_raw = openssl_encrypt($string, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+	    $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+	    return base64_encode( $iv.$hmac.$ciphertext_raw );
+    }
+
+    public static function decrypt($encstring, $secret_key, $salt){
+	    $key = hash('SHA256', $salt . $secret_key, true);
+	    $c = base64_decode($encstring);
+	    $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+	    $iv = substr($c, 0, $ivlen);
+	    $hmac = substr($c, $ivlen, $sha2len=32);
+	    $ciphertext_raw = substr($c, $ivlen+$sha2len);
+	    $original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+	    $calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+	    if (hash_equals($hmac, $calcmac))  //PHP 5.6+ timing attack safe comparison
+	    {
+		    echo $original_plaintext."\n";
+		    return $original_plaintext;
+	    }
+    }
+
 }
 
 class Connect extends SQLite3 {
@@ -431,10 +461,7 @@ class Connect extends SQLite3 {
 	}
 }
 
-class DB extends SQLite3 {
-
-    private $connection = false;
-    private $cursor = false;
+class DB {
 
     DEFINE("CREATE_CONFIG_TABLE", 'CREATE TABLE "config" (
 	  "id" INTEGER CONSTRAINT "pk_config" PRIMARY KEY AUTOINCREMENT,
@@ -464,6 +491,10 @@ class DB extends SQLite3 {
       VALUES
       (:category, :name, :key, :value, :owner, now()');
 
+    DEFINE("DELETE_USER", 'DELETE FROM "users" WHERE username = :username');
+
+    DEFINE("DELETE_CONFIG", 'DELETE FROM "config" WHERE id = :id');
+
     function __construct(){
         $db = new Connect();
         $log = new Logger();
@@ -479,14 +510,19 @@ class DB extends SQLite3 {
 
     function add_user($username, $password){
         $db = new Connect();
+        $secret_key = Utils::config_read()['secret_key'];
+        $salt = Utils::config_read()['salt'];
+        $enc_password = Utils::encrypt($password, $secret_key, $salt);
         $statement = $db->prepare(INSERT_USER);
         $statement->bindValue(':username', $username, SQLITE3_TEXT);
-	    $statement->bindValue(':password', $password, SQLITE3_TEXT);
+	    $statement->bindValue(':password', $enc_password, SQLITE3_TEXT);
         $statement->execute();
+        $db->close();
     }
 
     function add_config($name, $key, $value){
         $db = new Connect();
+        $owner = "primary_user";
         $statement = $db->prepare(INSERT_USER);
         $statement->bindValue(':category', $cat, SQLITE3_TEXT);
         $statement->bindValue(':name', $name, SQLITE3_TEXT);
@@ -494,6 +530,23 @@ class DB extends SQLite3 {
         $statement->bindValue(':value', $value, SQLITE3_TEXT);
         $statement->bindValue(':owner', $owner, SQLITE3_TEXT);
         $statement->execute();
+        $db->close();
+    }
+
+    function delete_user($username){
+        $db = new Connect();
+        $statement = $db->prepare(DELETE_USER);
+        $statement->bindValue(':username', $username, SQLITE3_TEXT);
+        $statement->execute();
+        $db->close();
+    }
+
+    function delete_config($config_id){
+        $db = new Connect();
+        $statement = $db->prepare(DELETE_CONFIG);
+        $statement->bindValue(':id', $config_id, SQLITE3_TEXT);
+        $statement->execute();
+        $db->close();
     }
 
     }
